@@ -1,0 +1,11 @@
+{
+  "name": "AI미러",
+  "short_name": "AI미러",
+  "description": "전면 카메라를 자동 보정된 거울처럼 보여주는 앱",
+  "start_url": "./",
+  "display": "fullscreen",
+  "orientation": "portrait",
+  "background_color": "#0b0c0e",
+  "theme_color": "#0b0c0e",
+  "icons": [{ "src": "icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable" }]
+}

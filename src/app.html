@@ -1,0 +1,482 @@
+<title>AI미러</title>
+<style>
+/* Layout: one full-bleed mirror surface, a thin control rail floating at the bottom. Single dark look, like glass in a dim room. */
+:root {
+  --bg: #0b0c0e;
+  --glass: rgba(20, 22, 26, 0.62);
+  --fg: #f3efe9;
+  --muted: #a49d94;
+  --light: #fff4e3;
+  --accent: #e9c89a;
+  --font-display: "Gowun Batang", "Noto Serif KR", serif;
+  --font-body: "Pretendard", "Noto Sans KR", system-ui, -apple-system, sans-serif;
+  color-scheme: dark;
+}
+[hidden] { display: none !important; }
+html, body { height: 100%; }
+body {
+  background: var(--bg);
+  color: var(--fg);
+  font-family: var(--font-body);
+  overflow: hidden;
+  -webkit-user-select: none;
+  user-select: none;
+  touch-action: manipulation;
+}
+#stage {
+  position: fixed; inset: 0;
+  background: var(--bg);
+  transition: background 0.6s ease, padding 0.6s ease;
+}
+#stage.lit {
+  background: var(--light);
+  padding: 7vmin;
+}
+#frame {
+  position: relative; width: 100%; height: 100%;
+  overflow: hidden;
+  transition: border-radius 0.6s ease;
+}
+#stage.lit #frame { border-radius: 28px; }
+#view { width: 100%; height: 100%; display: block; }
+
+#intro {
+  position: fixed; inset: 0;
+  display: grid; place-items: center;
+  padding-inline: 24px;
+  background: radial-gradient(120% 80% at 50% 30%, #1d1b19 0%, var(--bg) 70%);
+  z-index: 5;
+}
+.intro-box { max-width: 26rem; display: grid; gap: 18px; text-align: center; }
+.oval {
+  width: 120px; height: 160px; margin-inline: auto;
+  border-radius: 50%;
+  border: 1.5px solid var(--accent);
+  box-shadow: 0 0 60px rgba(233, 200, 154, 0.25), inset 0 0 40px rgba(233, 200, 154, 0.12);
+}
+h1 { font-family: var(--font-display); font-weight: 700; font-size: 2.2rem; letter-spacing: 0.02em; margin: 0; }
+.lede { color: var(--muted); line-height: 1.65; margin: 0; font-size: 0.98rem; text-wrap: balance; }
+.btn-primary {
+  appearance: none; border: 0; cursor: pointer;
+  background: var(--accent); color: #1b1712;
+  font: 600 1.05rem var(--font-body);
+  padding: 15px 22px; border-radius: 999px;
+}
+.btn-ghost {
+  appearance: none; cursor: pointer;
+  background: transparent; color: var(--fg);
+  border: 1px solid rgba(243, 239, 233, 0.28);
+  font: 500 0.95rem var(--font-body);
+  padding: 12px 20px; border-radius: 999px;
+}
+button:focus-visible, label:focus-within { outline: 2px solid var(--accent); outline-offset: 3px; }
+.note { color: var(--muted); font-size: 0.85rem; line-height: 1.6; margin: 0; }
+.note[hidden] { display: none; }
+
+#bar {
+  position: fixed; left: 0; right: 0; bottom: 0;
+  display: flex; justify-content: center; gap: 10px; flex-wrap: wrap;
+  padding: 12px 16px calc(16px + env(safe-area-inset-bottom, 0px));
+  z-index: 3;
+  transition: opacity 0.4s ease;
+}
+#bar.dim { opacity: 0; pointer-events: none; }
+.chip {
+  appearance: none; cursor: pointer;
+  display: inline-flex; align-items: center; gap: 6px;
+  background: var(--glass); color: var(--fg);
+  -webkit-backdrop-filter: blur(14px); backdrop-filter: blur(14px);
+  border: 1px solid rgba(243, 239, 233, 0.14);
+  font: 500 0.88rem var(--font-body);
+  padding: 10px 14px; border-radius: 999px;
+}
+.chip[aria-pressed="true"] { border-color: var(--accent); color: var(--accent); }
+.chip .dot { width: 7px; height: 7px; border-radius: 50%; background: currentColor; opacity: 0.8; }
+#toast {
+  position: fixed; top: calc(14px + env(safe-area-inset-top, 0px)); left: 50%;
+  transform: translateX(-50%);
+  background: var(--glass); color: var(--fg);
+  -webkit-backdrop-filter: blur(14px); backdrop-filter: blur(14px);
+  padding: 8px 14px; border-radius: 999px; font-size: 0.85rem;
+  z-index: 4; transition: opacity 0.3s ease; opacity: 0; pointer-events: none;
+}
+#toast.show { opacity: 1; }
+@media (prefers-reduced-motion: reduce) {
+  #stage, #frame, #bar, #toast { transition: none; }
+}
+</style>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Gowun+Batang:wght@700&family=Noto+Sans+KR:wght@400;500;600&display=swap">
+
+<div id="stage"><div id="frame"><canvas id="view"></canvas></div></div>
+
+<div id="intro">
+  <div class="intro-box">
+    <div class="oval" aria-hidden="true"></div>
+    <h1>AI미러</h1>
+    <p class="lede">전면 카메라를 거울처럼 보여주고, 조명과 피부결, 렌즈 왜곡을 알아서 다듬어요. 설정할 건 없어요.</p>
+    <button id="start" class="btn-primary" type="button">거울 켜기</button>
+    <label class="btn-ghost" for="photo">셀카 한 장으로 보기</label>
+    <input id="photo" type="file" accept="image/*" capture="user" hidden>
+    <p id="camNote" class="note" hidden></p>
+    <p class="note">영상은 이 기기 안에서만 처리되고 어디에도 저장되거나 전송되지 않아요.</p>
+  </div>
+</div>
+
+<div id="bar" hidden>
+  <button id="hold" class="chip" type="button"><span class="dot"></span>누르는 동안 원본</button>
+  <button id="lightBtn" class="chip" type="button" aria-pressed="false">화면 조명</button>
+  <button id="levelBtn" class="chip" type="button">보정 보통</button>
+  <button id="againBtn" class="chip" type="button" hidden>다시 찍기</button>
+</div>
+<div id="toast" role="status"></div>
+
+<script>
+(() => {
+  "use strict";
+  const $ = (id) => document.getElementById(id);
+  const canvas = $("view");
+  const gl = canvas.getContext("webgl", { premultipliedAlpha: false, preserveDrawingBuffer: false });
+
+  // Correction presets. "보통" is the default; nothing needs to be set.
+  const LEVELS = [
+    { name: "약하게", smooth: 0.45, light: 0.6, lens: 0.04 },
+    { name: "보통",   smooth: 0.75, light: 1.0, lens: 0.07 },
+    { name: "강하게", smooth: 0.95, light: 1.25, lens: 0.10 },
+  ];
+  let level = 1;
+  try { const s = localStorage.getItem("aimirror.level"); if (s !== null && LEVELS[+s]) level = +s; } catch (e) {}
+
+  const state = {
+    source: null,        // HTMLVideoElement or HTMLImageElement/ImageBitmap
+    isVideo: false,
+    srcW: 1, srcH: 1,
+    mirror: true,
+    showOriginal: false,
+    lightMode: "auto",   // auto | on | off
+    lit: false,
+    gain: 1, wb: [1, 1, 1], lift: 0.35,
+    frame: 0,
+  };
+
+  // ---------- WebGL ----------
+  const VS = `
+    attribute vec2 a; varying vec2 v;
+    void main(){ v = a*0.5+0.5; gl_Position = vec4(a,0.,1.); }`;
+  const FS = `
+    precision highp float;
+    varying vec2 v;
+    uniform sampler2D tex;
+    uniform vec2 srcSize;     // source pixels
+    uniform float screenAsp;  // w/h of canvas
+    uniform float mirror;
+    uniform float strength;   // 0 = original
+    uniform float smoothAmt;
+    uniform float lightAmt;
+    uniform float lens;
+    uniform float gain;
+    uniform vec3 wb;
+    uniform float lift;
+
+    float luma(vec3 c){ return dot(c, vec3(0.299,0.587,0.114)); }
+
+    // YCbCr skin likelihood, soft-edged.
+    float skin(vec3 c){
+      float y  = luma(c);
+      float cb = 0.5 - 0.168736*c.r - 0.331264*c.g + 0.5*c.b;
+      float cr = 0.5 + 0.5*c.r - 0.418688*c.g - 0.081312*c.b;
+      float a = smoothstep(0.30, 0.34, cb) * (1.0 - smoothstep(0.49, 0.53, cb));
+      float b = smoothstep(0.51, 0.54, cr) * (1.0 - smoothstep(0.66, 0.70, cr));
+      return a * b * smoothstep(0.08, 0.2, y);
+    }
+
+    void main(){
+      vec2 s = v;
+      if (mirror > 0.5) s.x = 1.0 - s.x;
+
+      // Screen-space centred coordinates (aspect-correct).
+      vec2 p = (s - 0.5) * vec2(screenAsp, 1.0);
+      float rmax2 = 0.25 * (screenAsp*screenAsp + 1.0);
+      float r2 = dot(p,p) / rmax2;
+
+      // Close-range front cameras enlarge the centre of the face (nose, cheeks).
+      // Pull the centre in slightly; edges stay put.
+      float k = lens * strength;
+      p *= 1.0 + k * (1.0 - r2);
+
+      // Cover-fit into the source.
+      float srcAsp = srcSize.x / srcSize.y;
+      vec2 uv = p / vec2(screenAsp, 1.0);
+      if (srcAsp > screenAsp) uv.x *= screenAsp / srcAsp; else uv.y *= srcAsp / screenAsp;
+      uv += 0.5;
+
+      vec3 c0 = texture2D(tex, uv).rgb;
+      if (strength <= 0.001) { gl_FragColor = vec4(c0,1.0); return; }
+
+      // Edge-preserving (bilateral) blur, radius scaled to source resolution.
+      vec2 px = 1.0 / srcSize;
+      float rad = max(1.5, srcSize.y / 260.0);
+      vec3 acc = c0; float wsum = 1.0;
+      for (int ring = 1; ring <= 3; ring++) {
+        float rr = rad * float(ring);
+        float ws = exp(-float(ring*ring) / 4.5);
+        for (int i = 0; i < 8; i++) {
+          float ang = 6.2831853 * (float(i) + 0.5*float(ring)) / 8.0;
+          vec3 c = texture2D(tex, uv + vec2(cos(ang), sin(ang)) * rr * px).rgb;
+          vec3 d = c - c0;
+          float w = ws * exp(-dot(d,d) / 0.012);
+          acc += c * w; wsum += w;
+        }
+      }
+      vec3 smoothC = acc / wsum;
+
+      float m = skin(c0) * smoothAmt * strength;
+      // Keep a little of the fine texture so skin does not look plastic.
+      vec3 col = mix(c0, smoothC, m * 0.85);
+      col += (c0 - smoothC) * 0.12 * m;
+
+      // Lighting: white balance, exposure, shadow lift, soft front light.
+      float L = lightAmt * strength;
+      col *= mix(vec3(1.0), wb, L);
+      float front = 1.0 + 0.10 * L * (1.0 - smoothstep(0.0, 0.7, r2));
+      col *= mix(1.0, gain, L) * front;
+      vec3 lifted = col + lift * L * col * (1.0 - col) * (1.0 - col) * 1.6;
+      col = clamp(lifted, 0.0, 1.0);
+
+      // Gentle warmth and a touch of colour, like a mirror under warm bulbs.
+      col *= vec3(1.0 + 0.025*L, 1.0 + 0.005*L, 1.0 - 0.025*L);
+      float y = luma(col);
+      col = mix(vec3(y), col, 1.0 + 0.06*L);
+
+      // Soft bloom on highlights for a gentler look.
+      vec3 glow = smoothC * smoothstep(0.55, 1.0, luma(smoothC));
+      col = 1.0 - (1.0 - col) * (1.0 - glow * 0.10 * L);
+
+      gl_FragColor = vec4(clamp(col,0.0,1.0), 1.0);
+    }`;
+
+  let prog, U = {}, tex;
+  function initGL() {
+    if (!gl) return false;
+    const sh = (type, src) => {
+      const s = gl.createShader(type); gl.shaderSource(s, src); gl.compileShader(s);
+      if (!gl.getShaderParameter(s, gl.COMPILE_STATUS)) throw new Error(gl.getShaderInfoLog(s));
+      return s;
+    };
+    prog = gl.createProgram();
+    gl.attachShader(prog, sh(gl.VERTEX_SHADER, VS));
+    gl.attachShader(prog, sh(gl.FRAGMENT_SHADER, FS));
+    gl.linkProgram(prog);
+    if (!gl.getProgramParameter(prog, gl.LINK_STATUS)) throw new Error(gl.getProgramInfoLog(prog));
+    gl.useProgram(prog);
+    const buf = gl.createBuffer();
+    gl.bindBuffer(gl.ARRAY_BUFFER, buf);
+    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1,-1, 1,-1, -1,1, 1,1]), gl.STATIC_DRAW);
+    const a = gl.getAttribLocation(prog, "a");
+    gl.enableVertexAttribArray(a);
+    gl.vertexAttribPointer(a, 2, gl.FLOAT, false, 0, 0);
+    ["tex","srcSize","screenAsp","mirror","strength","smoothAmt","lightAmt","lens","gain","wb","lift"]
+      .forEach(n => U[n] = gl.getUniformLocation(prog, n));
+    tex = gl.createTexture();
+    gl.bindTexture(gl.TEXTURE_2D, tex);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+    gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, true);
+    return true;
+  }
+
+  function resize() {
+    const dpr = Math.min(window.devicePixelRatio || 1, 1.75);
+    const w = Math.round(canvas.clientWidth * dpr), h = Math.round(canvas.clientHeight * dpr);
+    if (canvas.width !== w || canvas.height !== h) { canvas.width = w; canvas.height = h; }
+  }
+
+  // ---------- Auto light metering (on a tiny copy of the frame) ----------
+  const meter = document.createElement("canvas");
+  meter.width = 48; meter.height = 48;
+  const mctx = meter.getContext("2d", { willReadFrequently: true });
+  function measure(snap) {
+    try {
+      mctx.drawImage(state.source, 0, 0, 48, 48);
+      const d = mctx.getImageData(0, 0, 48, 48).data;
+      let r = 0, g = 0, b = 0, cl = 0, cn = 0;
+      for (let y = 0; y < 48; y++) for (let x = 0; x < 48; x++) {
+        const i = (y * 48 + x) * 4;
+        const R = d[i] / 255, G = d[i+1] / 255, B = d[i+2] / 255;
+        r += R; g += G; b += B;
+        // centre oval roughly where a face sits
+        const dx = (x - 24) / 15, dy = (y - 21) / 19;
+        if (dx*dx + dy*dy < 1) { cl += 0.299*R + 0.587*G + 0.114*B; cn++; }
+      }
+      const n = 48 * 48; r /= n; g /= n; b /= n;
+      const face = cn ? cl / cn : 0.5;
+      const avg = (r + g + b) / 3 || 0.5;
+      const tgtGain = Math.min(1.7, Math.max(0.85, 0.52 / Math.max(face, 0.05)));
+      const tgtWb = [r, g, b].map(c => Math.min(1.1, Math.max(0.9, 1 + 0.5 * (avg / Math.max(c, 0.02) - 1))));
+      const tgtLift = face < 0.35 ? 0.55 : face < 0.5 ? 0.38 : 0.2;
+      const k = snap ? 1 : 0.12;
+      state.gain += (tgtGain - state.gain) * k;
+      state.wb = state.wb.map((v, i) => v + (tgtWb[i] - v) * k);
+      state.lift += (tgtLift - state.lift) * k;
+      if (state.lightMode === "auto") setLit(face < 0.30);
+    } catch (e) { /* tainted or not ready yet */ }
+  }
+
+  function draw() {
+    if (!state.source) return;
+    resize();
+    gl.viewport(0, 0, canvas.width, canvas.height);
+    gl.bindTexture(gl.TEXTURE_2D, tex);
+    try {
+      gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGB, gl.RGB, gl.UNSIGNED_BYTE, state.source);
+    } catch (e) { return; }
+    const L = LEVELS[level];
+    gl.uniform1i(U.tex, 0);
+    gl.uniform2f(U.srcSize, state.srcW, state.srcH);
+    gl.uniform1f(U.screenAsp, canvas.width / canvas.height);
+    gl.uniform1f(U.mirror, state.mirror ? 1 : 0);
+    gl.uniform1f(U.strength, state.showOriginal ? 0 : 1);
+    gl.uniform1f(U.smoothAmt, L.smooth);
+    gl.uniform1f(U.lightAmt, L.light);
+    gl.uniform1f(U.lens, L.lens);
+    gl.uniform1f(U.gain, state.gain);
+    gl.uniform3f(U.wb, state.wb[0], state.wb[1], state.wb[2]);
+    gl.uniform1f(U.lift, state.lift);
+    gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+  }
+
+  function loop() {
+    const vid = state.source;
+    if (vid && vid.readyState >= 2) {
+      state.srcW = vid.videoWidth; state.srcH = vid.videoHeight;
+      if (state.frame % 6 === 0) measure(state.frame === 0);
+      state.frame++;
+      draw();
+    }
+    if (state.isVideo) requestAnimationFrame(loop);
+  }
+
+  // ---------- UI ----------
+  let toastT;
+  function toast(msg) {
+    const t = $("toast"); t.textContent = msg; t.classList.add("show");
+    clearTimeout(toastT); toastT = setTimeout(() => t.classList.remove("show"), 1600);
+  }
+  function setLit(on) {
+    if (state.lit === on) return;
+    state.lit = on;
+    $("stage").classList.toggle("lit", on);
+    $("lightBtn").setAttribute("aria-pressed", String(on));
+    setTimeout(() => { if (!state.isVideo) draw(); }, 650);
+  }
+  function showMirror() {
+    $("intro").hidden = true;
+    $("bar").hidden = false;
+    $("levelBtn").textContent = "보정 " + LEVELS[level].name;
+    armIdle();
+  }
+
+  let idleT;
+  function armIdle() {
+    $("bar").classList.remove("dim");
+    clearTimeout(idleT);
+    idleT = setTimeout(() => $("bar").classList.add("dim"), 4000);
+  }
+  document.addEventListener("pointerdown", armIdle);
+
+  async function keepAwake() {
+    try { if ("wakeLock" in navigator) await navigator.wakeLock.request("screen"); } catch (e) {}
+  }
+
+  async function startCamera() {
+    const note = $("camNote");
+    if (!gl) { note.hidden = false; note.textContent = "이 브라우저는 WebGL을 지원하지 않아 보정을 할 수 없어요."; return; }
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+      note.hidden = false;
+      note.textContent = "여기서는 실시간 카메라를 쓸 수 없어요. 아래 '셀카 한 장으로 보기'로 보정된 모습을 확인해 보세요.";
+      return;
+    }
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: false,
+        video: { facingMode: "user", width: { ideal: 1280 }, height: { ideal: 1280 } },
+      });
+      const v = document.createElement("video");
+      v.playsInline = true; v.muted = true; v.autoplay = true;
+      v.setAttribute("playsinline", "");
+      v.srcObject = stream;
+      await v.play();
+      state.source = v; state.isVideo = true; state.mirror = true; state.frame = 0;
+      $("againBtn").hidden = true;
+      showMirror();
+      keepAwake();
+      requestAnimationFrame(loop);
+    } catch (e) {
+      note.hidden = false;
+      note.textContent = e && e.name === "NotAllowedError"
+        ? "카메라 사용이 막혀 있어요. 아래 '셀카 한 장으로 보기'를 눌러 보세요."
+        : "카메라를 열 수 없었어요. 아래 '셀카 한 장으로 보기'를 눌러 보세요.";
+    }
+  }
+
+  async function loadPhoto(file) {
+    if (!file || !gl) return;
+    let src;
+    try {
+      src = await createImageBitmap(file, { imageOrientation: "from-image" });
+    } catch (e) {
+      src = await new Promise((res, rej) => {
+        const img = new Image(); img.onload = () => res(img); img.onerror = rej;
+        img.src = URL.createObjectURL(file);
+      });
+    }
+    // Fit large photos to a size the GPU handles comfortably.
+    const max = 1600, w = src.width, h = src.height, sc = Math.min(1, max / Math.max(w, h));
+    const c = document.createElement("canvas");
+    c.width = Math.round(w * sc); c.height = Math.round(h * sc);
+    c.getContext("2d").drawImage(src, 0, 0, c.width, c.height);
+    state.source = c; state.isVideo = false; state.srcW = c.width; state.srcH = c.height;
+    // Most phones save selfies un-mirrored; show it the way a mirror would.
+    state.mirror = true;
+    measure(true);
+    $("againBtn").hidden = false;
+    showMirror();
+    draw();
+  }
+
+  $("start").addEventListener("click", startCamera);
+  $("photo").addEventListener("change", (e) => loadPhoto(e.target.files[0]));
+  $("againBtn").addEventListener("click", () => { $("photo").value = ""; $("photo").click(); });
+
+  const hold = $("hold");
+  const orig = (on) => (e) => {
+    if (e.cancelable) e.preventDefault();
+    state.showOriginal = on;
+    hold.setAttribute("aria-pressed", String(on));
+    if (!state.isVideo) draw();
+  };
+  hold.addEventListener("pointerdown", orig(true));
+  ["pointerup", "pointercancel", "pointerleave"].forEach(ev => hold.addEventListener(ev, orig(false)));
+  hold.addEventListener("keydown", (e) => { if (e.key === " " || e.key === "Enter") orig(true)(e); });
+  hold.addEventListener("keyup", orig(false));
+  hold.addEventListener("contextmenu", (e) => e.preventDefault());
+
+  $("lightBtn").addEventListener("click", () => {
+    const next = !state.lit;
+    state.lightMode = next ? "on" : "off";
+    setLit(next);
+    toast(next ? "화면 조명 켜짐" : "화면 조명 꺼짐");
+  });
+  $("levelBtn").addEventListener("click", () => {
+    level = (level + 1) % LEVELS.length;
+    try { localStorage.setItem("aimirror.level", String(level)); } catch (e) {}
+    $("levelBtn").textContent = "보정 " + LEVELS[level].name;
+    if (!state.isVideo) draw();
+  });
+  window.addEventListener("resize", () => { if (!state.isVideo) draw(); });
+  document.addEventListener("visibilitychange", () => { if (!document.hidden && state.isVideo) keepAwake(); });
+
+  try { initGL(); } catch (e) { console.error(e); }
+})();
+</script>
